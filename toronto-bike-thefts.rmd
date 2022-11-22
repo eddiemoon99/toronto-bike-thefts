@@ -1,0 +1,311 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+urlcolor: blue
+---
+# *Thinking of Biking In Toronto? Read This First!*
+
+## *Eddie Moon and David Trinh*
+
+## *November 18, 2022*
+
+``` {r include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, fig.align="center")
+```
+
+``` {r include=FALSE}
+
+# load libraries 
+library(opendatatoronto)
+library(tidyverse)
+library(dplyr)
+library(sf)
+library(ggplot2)
+library(ggthemes)
+library(sjmisc)
+
+# read in bike theft dataset
+bike_data <- read.csv('https://raw.githubusercontent.com/datasonline/biketheftdata/main/biketheft2014-2019.csv')
+  
+# get toronto neighbourhood populations to calculate proportions
+pop_resources <- list_package_resources("6e19a90f-971c-46b3-852c-0c48c436d1fc") %>%
+  filter(id=='7f8eee5e-85fb-415c-aef3-c3bd4998445f') %>%
+  get_resource() %>%
+  filter(row_number()==3) %>%
+  select(-c('_id', 'Category', 'Topic', 'Data Source', 'Characteristic')) %>%
+  pivot_longer(cols=tidyselect::everything(), names_to = "Neighbourhood", values_to = "Population") %>%
+  mutate(Population = as.numeric(gsub(',', '', Population))) %>%
+  filter(Neighbourhood != 'Cabbagetown-South St. James Town' & Neighbourhood != 'North St. James Town') %>%
+  add_row(Neighbourhood = 'Cabbagetown-South St.James Town', Population=11669) %>%
+  add_row(Neighbourhood = 'North St.James Town', Population=18615)
+
+# get toronto neighbourhoods for mapping
+neighbourhoods <- list_package_resources("https://open.toronto.ca/dataset/neighbourhoods/") %>%
+  filter(row_number() == 2) %>%
+  get_resource() %>%
+  mutate(AREA_NAME = str_remove(AREA_NAME, "\\s\\(\\d+\\)$")) %>%
+  left_join(pop_resources, by=c('AREA_NAME'='Neighbourhood'))
+
+
+```
+
+Most of us learn to ride a bike from a very early age – certainly an exciting and cherishable memory. Riding throughout Toronto can be extremely fun and exhilarating! There are so many areas to explore and trails to conquer.
+
+However, there remains a large issue at hand: bike thefts!
+
+With the increase in the number of cyclists, there is also an increase in bike thefts. Toronto bike thieves will steal your bike at any given opportunity. Even locking them up with a traditional bike lock will probably do you no good…  If you walked across downtown Toronto, you will definitely have noticed all of the poor, disassembled, and lifeless bikes along the sidewalks.
+
+Whether you are considering purchasing a new bike or already own one, keeping your bike safe can be a challenging task.
+
+**[The Toronto Police Service](https://data.torontopolice.on.ca/)** has kept a record of stolen bikes between 2014-2019 which includes information such as the location, time, cost, and type of bikes stolen. 
+
+Utilizing this dataset, this article aims to analyze and highlight some key trends that will provide you with the information necessary to avoid bike thefts in Toronto.
+
+## *Neighbourhoods*
+
+When looking at our data, we first wanted to see: **“Which neighborhoods in Toronto have the highest number of bike thefts?”**
+
+Here we can take a look at a choropleth map of the various neighbourhoods in Toronto. In particular, we are able to see the differences in the number of bikes stolen per neighbourhood.
+
+``` {r}
+
+# data manipulation
+# group by neighbourhoods and count stolen bikes
+# count proportions respect to population as well
+neighbourhood_bikes_stolen <- bike_data %>%
+  group_by(Neighbourhood) %>%
+  summarise(count=n()) %>%
+  right_join(neighbourhoods, by=c('Neighbourhood'='AREA_DESC')) %>%
+  st_as_sf() %>%
+  mutate(count = ifelse(is.na(count), 0, count)) %>%
+  mutate(proportion = (count / Population) * 100)
+
+# plot visualization map
+neighbourhood_bikes_stolen %>%
+  ggplot() +
+  geom_sf(aes(fill = count)) +
+  scale_fill_gradient(name = "Bikes Stolen", low='#e5f5f9', high='#2ca25f') +
+  theme_map() +
+  labs(title='Number of Bikes Stolen In Each Neighbourhood') +
+  theme(plot.title = element_text(hjust = 0.5, colour="darkgreen", size=14, face="bold")) +
+  theme(legend.position=c(0.8,0),
+        legend.title=element_text(colour="darkgreen", size=8, face="bold"))
+
+```
+
+What is immediately most evident is that the number of bike thefts in the lower center area is the **most dense** by far. This makes sense because that represents the downtown neighbourhoods, where there are the most residents. 
+
+To capture a better understanding, we have to consider the **population differences** in the various neighbourhoods! What we can do is see the same map with the number of bike thefts, but this time, in proportion to the existing population in each neighbourhood.
+
+In doing so, we get:
+
+
+``` {r}
+
+# plot visualization map but for proportions
+neighbourhood_bikes_stolen %>%
+  ggplot() +
+  geom_sf(aes(fill = proportion)) +
+  scale_fill_gradient(name = "%", low='#e5f5f9', high='#2ca25f') +
+  theme_map() +
+  labs(title='Bikes Stolen With Respect To Population') +
+  theme(plot.title = element_text(hjust = 0.5, colour="darkgreen", size=14, face="bold")) +
+  theme(legend.position=c(0.8,0),
+        legend.title=element_text(colour="darkgreen", size=10, face="bold"))
+
+```
+
+This is a better representation of bike thefts in the neighbourhoods. We have measured the count of bike thefts against the population which gives us a **proportionate percentage** that more accurately depicts the variance between the neighbourhoods.
+
+The result is still quite similar to the first visualization – bike thefts are more dense in the downtown area. There could be many possible factors that cause this, but the most likely reason is that more people in downtown own bikes than people outside of downtown! Downtown Toronto has many more bike paths and trails, a greater ecosystem for biking. With everything in the downtown community being so close-knit, residents are certainly more likely to own a bike to get from place to place. 
+
+Food and grocery deliveries are much more popular in the densely packed downtown area. Compared to more suburban areas where deliveries have to be made by car, downtown food deliveries are mostly completed by bicycles. With universities located downtown bringing in a large amount of students, bicycles are more common there.
+
+**More bikes in the downtown area results in more bike thefts.** With bike-lock poles and areas on every block and sidewalk of downtown, it is easy for a bike thief to quickly commit the crime.
+
+Therefore, it is especially important for residents in downtown Toronto to be aware of the high possibility of bike thefts and how to avoid them. Make sure to use a modern suitable lock that offers justifiable protection, and make good decisions on where and where not to leave bikes!
+
+
+```{r}
+## Selecting Cost_of_Bike column
+bike_cost = bike_data %>%
+  select(Cost_of_Bike) %>%
+  #removing all N/A rows
+  drop_na()
+#add new column, price_class, to dataframe
+bike_cost = bike_cost %>%
+  add_column(price_class = "")
+
+#filter out bike cost less than 500
+#new_set = bike_cost %>%
+  #filter(between(Cost_of_Bike,0,500))
+  
+#summary(bike_cost$Cost_of_Bike)
+  
+```
+
+```{r}
+#Adding observations to column price_class, based on Cost_of_Bike
+
+for (row in 1:nrow(bike_cost)) {
+  price = bike_cost[row, "Cost_of_Bike"]
+    
+  if (price >= 0 & price <= 500) {
+      bike_cost[row, "price_class"] = "Department store"
+  }
+  if (price > 500 & price <= 3000) {
+      bike_cost[row, "price_class"] = "Entry level"
+  } 
+  if (price > 3000 & price <= 6000) {
+    bike_cost[row, "price_class"] = "Mid-range"
+  }
+  if (price > 6000) {
+    bike_cost[row, "price_class"] = "Top-end"
+  }
+}
+
+```
+
+## *Bike Costs*
+
+The cost of a bike can also play a strong role in whether it will be stolen. As is often the case, these bikes tend to be resold through online “Buy and Sell” websites such as Kijiji or Ebay. By looking at the cost of each stolen bike and breaking it down into different classes, we can analyze the price point at which most bikes tend to be stolen.
+
+The four classes of bikes were determined using information **[found online](https://www.theproscloset.com/blogs/news/how-much-should-you-spend-on-a-bike)** and includes: Department store ($0-$500), entry level ($500-$3000), mid-range ($3000-$6000), and top-end ($6000+) bikes. 
+
+Two questions we want to answer are:
+- What is the average cost of stolen bikes?
+- Which bike class is most commonly stolen?
+
+```{r}
+#boxplot showing average (median) cost of stolen bikes
+ggplot(data = bike_cost) +
+  geom_boxplot(aes(y = Cost_of_Bike), fill = "lightblue") +
+  scale_x_discrete() + 
+  coord_cartesian(ylim = c(0, 2000)) +
+  theme(plot.title = element_text(hjust = 0.5, colour="lightblue", size=14, face="bold"),
+        panel.background = element_rect(fill = "white"), 
+        panel.grid = element_line(colour = "lightgrey"),
+        panel.grid.minor = element_blank(),
+        panel.grid.major.x = element_blank()) +
+  labs(title = "What is The Average Cost of Stolen Bikes?", y = "Bike Cost")
+
+```
+
+```{r}
+#bar graph comparing number of bikes stolen in each price_class
+bike_cost %>%
+  ggplot(aes(x = price_class)) +
+  geom_bar(fill = "lightblue") +
+  theme(plot.title = element_text(hjust = 0.5, colour="lightblue", size=14, face="bold"),
+        panel.background = element_rect(fill = "white"), 
+        panel.grid = element_line(colour = "lightgrey"),
+        panel.grid.minor = element_blank(),
+        panel.grid.major.x = element_blank()) +
+  labs(title = "What Is The Most Stolen Bike Class?", y = "Number of stolen bikes", x = "Bike Class")
+
+```
+
+Our analysis showed that the most commonly stolen bikes were priced at $600, with 75% of them being equal to or less than $1000 and 25% of them being over $350. Entry level bikes were the most commonly stolen bike class with department store bikes coming in close second. These two bike classes made up the majority of the bikes stolen.
+
+Our visualization and analysis does not account for the variations in the proportion of each bike class owned within Toronto due to the lack of available data and may affect the accuracy of our results. For example, there may have been more stolen entry level bikes because these are more commonly found compared to top-end bikes. This also raised the question of where we would likely find our bikes stolen.
+
+```{r}
+#Select premise_type where bike was stolen and plot pie chart
+Premise = bike_data %>%
+  select(Premise_Type) %>%
+  drop_na()
+
+
+#Total observations
+Total = 4570 + 2602 + 3432 + 4021 + 6959
+
+#Calculte percentage and adding observation
+Percentage = Premise %>%
+  count(Premise_Type)
+
+for (row in 1:nrow(Percentage)) {
+  percent = Percentage[row, "n"]
+  Percentage[row, "Percent_Value"] = round(((percent / Total) * 100), digits = 0)
+}
+
+```
+
+## *Premise Type*
+
+As consumers, we know that leaving expensive bikes outside would be much worse than leaving cheaper bikes outside. However, is this really true? Given this question, we looked at the premise type where each bike was stolen. For example, we can imagine that bikes laying outside on the road would more likely be stolen compared to bikes inside houses since they are much easier to steal. The types of premises used in the data analysis includes: Houses, commercial, apartments, outside, and others (trains, hospitals, community homes, shelters, etc). 
+By analyzing this data, we can determine the premise where you’d most or least likely have your bike stolen.
+
+```{r}
+#Bar chart for use in pie chart
+BChart = Percentage %>%
+  ggplot(aes(x = "", y = Percent_Value, fill = Premise_Type)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = paste0(Percent_Value, "%")),
+            position = position_stack(vjust = 0.5))
+
+#Positions for pie chart labeling
+df2 = Percentage %>%
+  mutate(csum = rev(cumsum(rev(Percent_Value))), 
+         pos = Percent_Value/2 + lead(csum, 1),
+         pos = if_else(is.na(pos), Percent_Value/2, pos))
+
+#Pie chart
+pie = BChart + coord_polar("y", start = 180)
+pie + 
+  scale_fill_brewer(palette = "Pastel1") +
+  scale_y_continuous(breaks = df2$pos, labels = Percentage$Premise_Type) +
+  theme(plot.title = element_text(hjust = 0.5, size=14, face="bold"),
+        axis.ticks = element_blank(),
+        axis.title = element_blank(),
+        axis.text = element_text(size = 10),
+        legend.position = "none",
+        panel.background = element_rect(fill = "white")) +
+  labs(title='Where Are Bikes Stolen?')
+```
+
+As you may have guessed, the results of this analysis suggests that bikes found outside in open areas like the streets and parking lots are most likely to be stolen. The second most likely place to have bikes stolen are in apartments with others coming in close third. The least likely premise you’d have your bike stolen at are in commercial areas like bars and convenience stores as well as houses. This means that if you want to avoid having your bike stolen, you may want to avoid leaving it outside in public areas.
+
+```{r}
+# Making new dataframe and converting month number to month name
+Month_stolen = bike_data %>%
+  select(Occurrence_Month)
+
+for (row in 1:nrow(Month_stolen)) {
+  month = c("Jan", "Feb", "Mar", "Apr", "May", "Jun",
+            "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+  Month_stolen[row, "Month_name"] = month[Month_stolen[row, "Occurrence_Month"]]
+}
+Month_stolen$Month_name = factor(Month_stolen$Month_name, levels = month.abb)
+```
+
+## *Months Stolen*
+
+Since most would prefer to ride a bike outside during summer, the question of whether these bikes were stolen during the months of summer was raised. For our next analysis, we wanted to look at the month where most bikes were stolen. Knowing when thieves are going to steal your bike can help you avoid parking your bike outside during those times.
+
+```{r}
+
+#Graphing months of bike stolen
+Month_stolen %>%
+  ggplot(aes(x = Month_name)) +
+  geom_bar(fill = "lightblue") +
+  theme(plot.title = element_text(hjust = 0.5, size=14, face="bold"),
+        panel.background = element_rect(fill = "white"), 
+        panel.grid = element_line(colour = "lightgrey"),
+        panel.grid.minor = element_blank(),
+        panel.grid.major.x = element_blank()) +
+  labs(title = "During which Months are Bikes Most Stolen?", y = "Number of stolen bikes",
+       x = "Month")
+
+```
+Consistent with our hypothesis, our results showed that most bikes were stolen during the summer months (June, July, and August). The least amount of bikes were stolen during the winter months (December, January, February). This suggests that leaving your bike outside during the summer may not be a very good idea if you don’t want to have your bikes stolen.
+
+## *In Summary*
+
+Biking is a beautiful modern day activity that many Torontonians enjoy! Whether you are already a member of the community or are planning to join, you must be careful to avoid the common bike thefts of Toronto.
+
+Looking at the different neighbourhoods, we saw that bike thefts were most prevalent in downtown. Additionally, our analysis of the cost of bikes stolen showed that entry level bikes are most commonly stolen. Finally, bikes that are left outside in the summer also had the highest chances of being taken away.
+
+We hope you are able to take these points into consideration and keep your bike safe!
+
+
